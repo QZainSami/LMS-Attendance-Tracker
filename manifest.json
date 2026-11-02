@@ -1,0 +1,36 @@
+{
+  "manifest_version": 3,
+  "name": "Bahria CMS Attendance Tracker",
+  "description": "Displays attendance data in a simple, actionable format: classes you can afford to miss.",
+  "version": "1.2.0",
+  "author": "Sami",
+
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "CMS Attendance"
+  },
+
+  "permissions": ["storage", "tabs", "activeTab", "scripting"],
+  "host_permissions": ["https://cms.bahria.edu.pk/*"],
+
+  "content_scripts": [
+    {
+      "matches": ["https://cms.bahria.edu.pk/Sys/Student/ClassAttendance/StudentWiseAttendance.aspx*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "background": {
+    "scripts": ["background.js"]
+  },
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "attendance-tracker-v2@yourdomain.com",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  }
+}

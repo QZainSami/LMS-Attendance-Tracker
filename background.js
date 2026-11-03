@@ -13,7 +13,7 @@ async function refreshDataInBackground() {
   if (!response.ok) throw new Error(`Network failure: ${response.statusText}`);
 
   const htmlText = await response.text();
-  if (htmlText.includes('Logins/Student/Login.aspx') || htmlText.includes('id="login"')) {
+  if (/\/login/i.test(response.url) || htmlText.includes('id="login"')) {
     throw new Error('Session expired. Please log in to CMS first.');
   }
 
@@ -27,7 +27,7 @@ function scrapeAttendanceFromHtml(htmlString) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(htmlString, 'text/html');
   const tables = Array.from(doc.querySelectorAll('table'));
-  const attendanceTable = tables.find(t => t.innerText.includes('Present Hours'));
+  const attendanceTable = tables.find(t => t.textContent.includes('Present Hours'));
   
   if (!attendanceTable) return [];
   
@@ -37,12 +37,12 @@ function scrapeAttendanceFromHtml(htmlString) {
   rows.forEach((r) => {
     const cols = r.querySelectorAll('td');
     if (cols.length >= 12) { 
-      const courseCode = cols[1]?.innerText.trim() || '';
-      const courseName = cols[2]?.innerText.trim() || '';
-      const creditHours = parseFloat(cols[3]?.innerText.trim()) || 3;
-      const presentColText = cols[9]?.innerText.trim() || '';
-      const absentHours = parseFloat(cols[10]?.innerText.trim()) || 0;
-      const totalHours = parseFloat(cols[11]?.innerText.trim()) || 0;
+      const courseCode = cols[1]?.textContent.trim() || '';
+      const courseName = cols[2]?.textContent.trim() || '';
+      const creditHours = parseFloat(cols[3]?.textContent.trim()) || 3;
+      const presentColText = cols[9]?.textContent.trim() || '';
+      const absentHours = parseFloat(cols[10]?.textContent.trim()) || 0;
+      const totalHours = parseFloat(cols[11]?.textContent.trim()) || 0;
 
       if (courseName && presentColText.includes(':')) {
         const attended = parseFloat(presentColText.split(':')[0].trim());
@@ -97,11 +97,10 @@ function processAttendanceData(attendanceList) {
   const now = new Date();
   const timeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  chrome.storage.local.set({ 
+  return new Promise(resolve => chrome.storage.local.set({ 
     attendanceData: processedList,
     lastSynced: timeString
-  });
-  return processedList; 
+  }, () => resolve(processedList))); 
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -113,8 +112,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === 'auto_sync_attendance' || msg.type === 'save_tab_data') {
-    const processed = processAttendanceData(msg.data);
-    sendResponse({ success: true, attendance: processed });
+    processAttendanceData(msg.data).then(processed => sendResponse({ success: true, attendance: processed }));
     return true;
   }
   

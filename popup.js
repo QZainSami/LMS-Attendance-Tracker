@@ -86,40 +86,12 @@ document.addEventListener('DOMContentLoaded', () => {
     refreshButton.textContent = 'Syncing...';
 
     try {
-      // Find active tab or any open CMS attendance tab
-      let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
-      if (!tab || !tab.url || !tab.url.includes('StudentWiseAttendance.aspx')) {
-        const cmsTabs = await chrome.tabs.query({ url: '*://cms.bahria.edu.pk/*/StudentWiseAttendance.aspx*' });
-        if (cmsTabs.length > 0) {
-          tab = cmsTabs[0];
-        }
-      }
-
-      if (tab && tab.id) {
-        const results = await chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          func: scrapeDirectDOM
-        });
-
-        if (results && results[0] && results[0].result && results[0].result.length > 0) {
-          chrome.runtime.sendMessage({ type: 'save_tab_data', data: results[0].result }, (resp) => {
-            refreshButton.disabled = false;
-            refreshButton.textContent = 'Manual Refresh';
-            if (resp && resp.attendance) {
-              chrome.storage.local.get('lastSynced', (data) => {
-                renderAttendance(resp.attendance, data.lastSynced);
-              });
-            }
-          });
-          return;
-        }
-      }
-
-      // If user is not on the attendance page
+      const resp = await chrome.runtime.sendMessage({ type: 'refresh_data' });
+      if (!resp?.success) throw new Error(resp?.error || 'Could not refresh attendance.');
+      const data = await chrome.storage.local.get('lastSynced');
+      renderAttendance(resp.attendance, data.lastSynced);
       refreshButton.disabled = false;
       refreshButton.textContent = 'Manual Refresh';
-      alert('Open the CMS Attendance tab first, then click refresh.');
     } catch (err) {
       refreshButton.disabled = false;
       refreshButton.textContent = 'Manual Refresh';

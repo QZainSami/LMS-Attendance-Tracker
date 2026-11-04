@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Bahria CMS Attendance Tracker",
   "description": "Displays attendance data in a simple, actionable format: classes you can afford to miss.",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "author": "Sami",
   "action": {
     "default_popup": "popup.html",

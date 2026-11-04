@@ -35,3 +35,13 @@ Because this extension is open-source and does not require the Chrome Web Store:
 3. Open Chrome and navigate to:
    ```text
    chrome://extensions
+
+## Version 1.2.3 — manual refresh recovery
+
+Auto-sync reads attendance from the already loaded CMS page. Manual refresh previously relied only on a separate background request, which could fail even when the page was logged in and visible.
+
+Manual refresh now tries a fresh background request, then retries within a logged-in CMS tab without navigating it. If that request also fails and Attendance is already loaded, it reads the visible page and labels the timestamp Read open page. This fallback does not claim to retrieve new server data. Expired sessions and missing records leave the existing cache intact.
+
+Reload the extension after updating, then try Manual Refresh with CMS logged in. No new permissions are required. The extension ID and attendance calculations are unchanged.
+
+Validation: six automated tests cover fresh refresh, tab fallback, loaded-page labelling, expired sessions, missing tabs, and preservation of cached data. JavaScript syntax checks pass. Live CMS verification remains necessary.

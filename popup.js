@@ -5,9 +5,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const refreshButton = document.getElementById('refresh-button');
   const syncStatus = document.getElementById('sync-status');
 
-  function renderAttendance(attendance, lastSynced) {
+  function renderAttendance(attendance, lastSynced, source = 'fresh') {
     if (lastSynced && syncStatus) {
-      syncStatus.textContent = `Synced: ${lastSynced}`;
+      syncStatus.textContent = `${source === 'open_page' ? 'Read open page' : 'Synced'}: ${lastSynced}`;
+      syncStatus.title = source === 'open_page' ? 'Read the attendance already loaded in CMS. A fresh network request was unavailable.' : 'Fetched fresh attendance from CMS.';
     }
 
     if (!attendance || attendance.length === 0) {
@@ -77,10 +78,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Load existing records from storage
   chrome.runtime.sendMessage({ type: 'request_attendance' }, (res) => {
-    if (res && res.attendance) renderAttendance(res.attendance, res.lastSynced);
+    if (res && res.attendance) renderAttendance(res.attendance, res.lastSynced, res.source);
   });
 
-  // Manual Refresh: Scrapes directly from the CMS tab DOM
+  // Manual refresh first fetches fresh records, then uses a logged-in CMS tab.
   refreshButton.addEventListener('click', async () => {
     refreshButton.disabled = true;
     refreshButton.textContent = 'Syncing...';
@@ -88,8 +89,8 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const resp = await chrome.runtime.sendMessage({ type: 'refresh_data' });
       if (!resp?.success) throw new Error(resp?.error || 'Could not refresh attendance.');
-      const data = await chrome.storage.local.get('lastSynced');
-      renderAttendance(resp.attendance, data.lastSynced);
+      const data = await chrome.storage.local.get(['lastSynced', 'lastSyncSource']);
+      renderAttendance(resp.attendance, data.lastSynced, data.lastSyncSource);
       refreshButton.disabled = false;
       refreshButton.textContent = 'Manual Refresh';
     } catch (err) {

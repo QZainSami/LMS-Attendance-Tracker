@@ -3,24 +3,59 @@
 const MIN_ATTENDANCE_PERCENT = 75;
 const ATTENDANCE_URL = 'https://cms.bahria.edu.pk/Sys/Student/ClassAttendance/StudentWiseAttendance.aspx';
 
-async function refreshDataInBackground() {
-  const response = await fetch(ATTENDANCE_URL, {
-    method: 'GET',
-    credentials: 'include',
-    headers: { 'Accept': 'text/html' }
-  });
+// Runs in a CMS tab, preserving that tab's login and cookie context.
+async function fetchAttendanceInTab(url) {
+  let response;
+  try {
+    response = await fetch(url, { credentials: 'include', cache: 'no-store', signal: AbortSignal.timeout(25000) });
+  } catch (error) {
+    // A loaded attendance page remains useful if CMS blocks the fresh request.
+    if (location.pathname.toLowerCase() === new URL(url).pathname.toLowerCase() &&
+        [...document.querySelectorAll('table')].some(t => t.textContent.includes('Present Hours'))) {
+      return { html: document.documentElement.outerHTML, url: location.href, source: 'open_page' };
+    }
+    throw new Error('Could not reach CMS through this tab. Open the Attendance page and retry.');
+  }
+  if (!response.ok) throw new Error('CMS returned HTTP ' + response.status);
+  return { html: await response.text(), url: response.url, source: 'fresh' };
+}
 
-  if (!response.ok) throw new Error(`Network failure: ${response.statusText}`);
-
-  const htmlText = await response.text();
-  if (/\/login/i.test(response.url) || htmlText.includes('id="login"')) {
+function validateAttendancePage(html, url) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  if (/login|signin/i.test(new URL(url || ATTENDANCE_URL).pathname) || doc.querySelector('input[type="password"]')) {
     throw new Error('Session expired. Please log in to CMS first.');
   }
+  const records = scrapeAttendanceFromHtml(html);
+  if (!records.length) throw new Error('No attendance records found. Open CMS and check your login.');
+  return records;
+}
 
-  const attendanceList = scrapeAttendanceFromHtml(htmlText);
-  if (attendanceList.length === 0) throw new Error('No attendance records found.');
-  
-  return processAttendanceData(attendanceList);
+async function refreshDataInBackground() {
+  let backgroundError;
+  try {
+    const response = await fetch(ATTENDANCE_URL, {
+      credentials: 'include', cache: 'no-store', signal: AbortSignal.timeout(25000),
+      headers: { Accept: 'text/html' }
+    });
+    if (!response.ok) throw new Error('CMS returned HTTP ' + response.status);
+    const records = validateAttendancePage(await response.text(), response.url);
+    return processAttendanceData(records, 'fresh');
+  } catch (error) { backgroundError = error; }
+
+  const tabs = await chrome.tabs.query({ url: 'https://cms.bahria.edu.pk/*' });
+  // Prefer the attendance page, then an active CMS tab; never navigate a tab.
+  tabs.sort((a,b) => Number(/StudentWiseAttendance\.aspx/i.test(b.url || '')) - Number(/StudentWiseAttendance\.aspx/i.test(a.url || '')) || Number(!!b.active)-Number(!!a.active));
+  let lastError;
+  for (const tab of tabs) {
+    try {
+      const results = await chrome.scripting.executeScript({target:{tabId:tab.id},func:fetchAttendanceInTab,args:[ATTENDANCE_URL]});
+      const result = results?.[0]?.result;
+      if (!result?.html) throw new Error('CMS tab did not return attendance data.');
+      const records = validateAttendancePage(result.html, result.url);
+      return processAttendanceData(records, result.source);
+    } catch(error) { lastError = error; }
+  }
+  throw lastError || new Error(/session expired/i.test(backgroundError.message) ? backgroundError.message : 'Background refresh could not reach CMS. Open a logged-in CMS tab and retry.');
 }
 
 function scrapeAttendanceFromHtml(htmlString) {
@@ -74,7 +109,7 @@ function scrapeAttendanceFromHtml(htmlString) {
   return attendanceList;
 }
 
-function processAttendanceData(attendanceList) {
+function processAttendanceData(attendanceList, source = 'open_page') {
   const processedList = attendanceList.map(item => {
     let classesToRecover = 0;
     if (item.percentage < MIN_ATTENDANCE_PERCENT) {
@@ -99,7 +134,8 @@ function processAttendanceData(attendanceList) {
 
   return new Promise(resolve => chrome.storage.local.set({ 
     attendanceData: processedList,
-    lastSynced: timeString
+    lastSynced: timeString,
+    lastSyncSource: source
   }, () => resolve(processedList))); 
 }
 
@@ -117,10 +153,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   
   if (msg.type === 'request_attendance') {
-    chrome.storage.local.get(['attendanceData', 'lastSynced'], (data) => {
+    chrome.storage.local.get(['attendanceData', 'lastSynced', 'lastSyncSource'], (data) => {
       sendResponse({ 
         attendance: data.attendanceData || [],
-        lastSynced: data.lastSynced || ''
+        lastSynced: data.lastSynced || '',
+        source: data.lastSyncSource || 'fresh'
       });
     });
     return true;
